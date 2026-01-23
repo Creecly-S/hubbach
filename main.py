@@ -100,7 +100,8 @@ def is_admin(user_id):
 async def add_user(user_id, referrer_id=None):
     if get_user(user_id): return None
     if referrer_id == user_id: referrer_id = None
-    new_user = {"user_id": user_id, "balance": 0, "reg_date": datetime.now().strftime("%d.%m.%Y"), "ref_count": 0,
+    # ИЗМЕНЕНИЕ ЗДЕСЬ: balance: 10 вместо 0
+    new_user = {"user_id": user_id, "balance": 10, "reg_date": datetime.now().strftime("%d.%m.%Y"), "ref_count": 0,
                 "referrer_id": referrer_id}
     db_cache.setdefault("users", []).append(new_user)
     if referrer_id:
