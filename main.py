@@ -3,6 +3,7 @@ import logging
 import aiohttp
 import random
 import os
+import time
 from datetime import datetime
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, types, F
@@ -148,14 +149,34 @@ async def mark_as_seen(user_id, content_id):
 async def save_content(content_type, file_id, caption=""):
     content_list = db_cache.setdefault("content", [])
     max_id = max([c["id"] for c in content_list], default=0)
-    new_item = {"id": max_id + 1, "content_type": content_type, "file_id": file_id, "caption": caption}
+    # Добавляем время добавления для функции удаления по времени
+    new_item = {
+        "id": max_id + 1,
+        "content_type": content_type,
+        "file_id": file_id,
+        "caption": caption,
+        "added_at": time.time()
+    }
     content_list.append(new_item)
     await trigger_save(immediate=True)
 
 
-async def delete_all_content(content_type):
+async def delete_content_by_time(content_type, seconds_limit=None):
     content_list = db_cache.get("content", [])
-    db_cache["content"] = [c for c in content_list if c["content_type"] != content_type]
+    now = time.time()
+
+    if seconds_limit:
+        # Удаляем то, что было добавлено Х секунд назад (т.е. newer than now - limit)
+        limit_time = now - seconds_limit
+        # Сохраняем только то, что старее, либо другого типа
+        db_cache["content"] = [
+            c for c in content_list
+            if not (c["content_type"] == content_type and c.get("added_at", 0) > limit_time)
+        ]
+    else:
+        # Удаляем все
+        db_cache["content"] = [c for c in content_list if c["content_type"] != content_type]
+
     await trigger_save(immediate=True)
 
 
@@ -198,7 +219,6 @@ class AdminStates(StatesGroup):
     waiting_for_admin_id_del = State()
 
 
-# НОВЫЕ СОСТОЯНИЯ ДЛЯ ПОДДЕРЖКИ И ПРЕДЛОЖКИ
 class SupportStates(StatesGroup):
     waiting_message = State()
 
@@ -250,9 +270,10 @@ def get_main_keyboard(user_id):
 
 def get_admin_keyboard():
     builder = ReplyKeyboardBuilder()
+    builder.row(types.KeyboardButton(text="👥 Пользователи"), types.KeyboardButton(text="📢 Рассылка"))
     builder.row(types.KeyboardButton(text="📸 Добавить фото"), types.KeyboardButton(text="🎥 Добавить видео"))
-    builder.row(types.KeyboardButton(text="🗑 Удалить все фото"), types.KeyboardButton(text="🗑 Удалить все видео"))
-    builder.row(types.KeyboardButton(text="📢 Рассылка"), types.KeyboardButton(text="💸 Начислить монеты"))
+    builder.row(types.KeyboardButton(text="🗑 Удалить фото"), types.KeyboardButton(text="🗑 Удалить видео"))
+    builder.row(types.KeyboardButton(text="💸 Начислить монеты"))
     builder.row(types.KeyboardButton(text="👮‍♂️ Добавить админа"), types.KeyboardButton(text="🚫 Удалить админа"))
     builder.row(types.KeyboardButton(text="🔙 В главное меню"))
     return builder.as_markup(resize_keyboard=True)
@@ -304,11 +325,7 @@ async def panel_ref(message: Message):
         f"{convert_to_font('Реферальная система')}\n{convert_to_font('Ссылка:')} https://t.me/{bot_info.username}?start={message.from_user.id}")
 
 
-@dp.message(F.text == convert_to_font("📝 Задания"))
-async def panel_tasks(message: Message): await message.answer(convert_to_font("Скоро здесь появятся задания!"))
-
-
-# --- ЛОГИКА КОНТЕНТА ---
+# --- ЛОГИКА КОНТЕНТА (С ЗАЩИТОЙ) ---
 @dp.message(F.text == convert_to_font("📷 Фото"))
 async def show_photo(message: Message):
     uid = message.from_user.id;
@@ -321,7 +338,7 @@ async def show_photo(message: Message):
         await mark_as_seen(uid, c["id"])
         try:
             await message.answer_photo(photo=c["file_id"], caption=convert_to_font(
-                f"💸 Списано 1 монету(ы). Ваш баланс: {u['balance'] - 1}"))
+                f"💸 Списано 1 монету(ы). Ваш баланс: {u['balance'] - 1}"), protect_content=True)
         except:
             await add_balance(uid, 1); await message.answer(convert_to_font("Ошибка загрузки."))
     else:
@@ -340,11 +357,31 @@ async def show_video(message: Message):
         await mark_as_seen(uid, c["id"])
         try:
             await message.answer_video(video=c["file_id"],
-                                       caption=convert_to_font(f"💸 Списано 3 монеты. Ваш баланс: {u['balance'] - 3}"))
+                                       caption=convert_to_font(f"💸 Списано 3 монеты. Ваш баланс: {u['balance'] - 3}"),
+                                       protect_content=True)
         except:
             await add_balance(uid, 3); await message.answer(convert_to_font("Ошибка загрузки."))
     else:
         await add_balance(uid, 3); await message.answer(convert_to_font("Пока нет видео."))
+
+
+# --- ЗАДАНИЕ ---
+@dp.message(F.text == convert_to_font("📝 Задания"))
+async def panel_tasks(message: Message):
+    text = (
+        "🔥 ЗАДАНИЕ\n\n"
+        "💰 +45💸 за задание:\n"
+        "1. Пишем в поиске TikTok (тт): дэтское питаниеэ\n"
+        "2. Под разными 10 видео оставляем по 1 коменту:\n"
+        "самое лучшее\n"
+        "፰፰፰፰፰፰፰፰፰፰፰፰፰፰፰፰፰፰፰፰፰፰፰፰\n"
+        "https://t.me/HubbachBot\n"
+        "፰፰፰፰፰፰፰፰፰፰፰፰፰፰፰፰፰፰፰፰፰፰፰፰\n"
+        "4. ОБЯЗАТЕЛЬНО лайкаем свой комент!\n\n"
+        "📸 После выполнения отправьте 15 скринов с вашим коментом в поддержку бота\n"
+        "💸 45💸 поступят к вам на балик в течение 10 минут!"
+    )
+    await message.answer(text)
 
 
 # ================= НОВЫЙ КАТАЛОГ =================
@@ -570,9 +607,7 @@ async def adm_send_link(message: Message, state: FSMContext):
     await state.clear()
 
 
-# ================= НОВЫЕ ФУНКЦИИ: ПОДДЕРЖКА И ПРЕДЛОЖКА =================
-
-# --- Поддержка ---
+# ================= ПОДДЕРЖКА И ПРЕДЛОЖКА =================
 @dp.message(F.text == convert_to_font("🆘 Поддержка"))
 async def support_start(message: Message, state: FSMContext):
     await message.answer(convert_to_font("Напишите ваш вопрос или отправьте скриншот/фото:"))
@@ -583,10 +618,8 @@ async def support_start(message: Message, state: FSMContext):
 async def support_process(message: Message, state: FSMContext):
     uid = message.from_user.id
     text_content = message.text or message.caption or ""
-
     builder = InlineKeyboardBuilder()
     builder.row(types.InlineKeyboardButton(text="Ответить", callback_data=f"supp_reply_{uid}"))
-
     try:
         if message.photo:
             await bot.send_photo(ADMIN_ID, photo=message.photo[-1].file_id,
@@ -596,7 +629,6 @@ async def support_process(message: Message, state: FSMContext):
                                  caption=f"🆘 Поддержка от {uid}:\n{text_content}", reply_markup=builder.as_markup())
         else:
             await bot.send_message(ADMIN_ID, f"🆘 Поддержка от {uid}:\n{text_content}", reply_markup=builder.as_markup())
-
         await message.answer(convert_to_font("✅ Сообщение отправлено! Ожидайте ответа."))
         await state.clear()
     except Exception as e:
@@ -607,7 +639,6 @@ async def support_process(message: Message, state: FSMContext):
 @dp.callback_query(F.data.startswith("supp_reply_"))
 async def supp_reply_callback(callback: CallbackQuery, state: FSMContext):
     uid = int(callback.data.split("_")[2])
-    # Сбрасываем текущее состояние админа, чтобы отвечать на поддержку
     await state.clear()
     await state.update_data(supp_user_id=uid)
     await callback.message.answer(f"Введите ответ для пользователя {uid}:")
@@ -624,12 +655,10 @@ async def supp_send_reply(message: Message, state: FSMContext):
             await bot.send_message(uid, f"📩 <b>Ответ поддержки:</b>\n\n{message.text}", parse_mode="HTML")
             await message.answer("Ответ отправлен.", reply_markup=get_admin_keyboard())
         except:
-            await message.answer("Не удалось отправить ответ (пользователь заблокировал бота).",
-                                 reply_markup=get_admin_keyboard())
+            await message.answer("Не удалось отправить ответ.", reply_markup=get_admin_keyboard())
     await state.clear()
 
 
-# --- Предложка ---
 @dp.message(F.text == convert_to_font("📤 Предложка"))
 async def sugg_start(message: Message, state: FSMContext):
     await message.answer(convert_to_font("Кидайте фото/видео/ссылку с предложением. Вы можете получить до 100 монет!"))
@@ -640,11 +669,9 @@ async def sugg_start(message: Message, state: FSMContext):
 async def sugg_process(message: Message, state: FSMContext):
     uid = message.from_user.id
     text_content = message.text or message.caption or ""
-
     builder = InlineKeyboardBuilder()
     builder.row(types.InlineKeyboardButton(text="✅ Принять (100 монет)", callback_data=f"sugg_acc_{uid}"))
     builder.row(types.InlineKeyboardButton(text="❌ Отклонить", callback_data=f"sugg_rej_{uid}"))
-
     try:
         if message.photo:
             await bot.send_photo(ADMIN_ID, photo=message.photo[-1].file_id,
@@ -655,7 +682,6 @@ async def sugg_process(message: Message, state: FSMContext):
         else:
             await bot.send_message(ADMIN_ID, f"📤 Предложка от {uid} (Текст/Ссылка):\n{text_content}",
                                    reply_markup=builder.as_markup())
-
         await message.answer(convert_to_font("✅ Предложка отправлено на проверку!"))
         await state.clear()
     except Exception as e:
@@ -671,7 +697,7 @@ async def sugg_acc(callback: CallbackQuery):
         await bot.send_message(uid, convert_to_font("🎁 Ваше предложение принято! Вам начислено 100 монет."))
     except:
         pass
-    await callback.message.edit_reply_markup(reply_markup=None)  # Убираем кнопки
+    await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.answer(f"Начислено 100 монет пользователю {uid}.")
     await callback.answer("Принято")
 
@@ -687,12 +713,12 @@ async def sugg_rej(callback: CallbackQuery):
     await callback.answer("Отклонено")
 
 
-# ================= АДМИНКА (ИСПРАВЛЕННАЯ) =================
+# ================= АДМИНКА (НОВАЯ) =================
 
 @dp.message(F.text == "⚙️ Админка")
 async def admin_panel(message: Message, state: FSMContext):
     if is_admin(message.from_user.id):
-        await state.clear()  # СБРАСЫВАЕМ ЛЮБОЕ СОСТОЯНИЕ
+        await state.clear()
         await message.answer("Админ-Панель.", reply_markup=get_admin_keyboard())
     else:
         await message.answer("Нет доступа.")
@@ -710,6 +736,72 @@ def get_cancel_keyboard():
     return b.as_markup(resize_keyboard=True)
 
 
+# --- Просмотр пользователей ---
+@dp.message(F.text == "👥 Пользователи")
+async def admin_users(message: Message):
+    users = db_cache.get("users", [])
+    total = len(users)
+    text = f"👥 Всего пользователей: {total}\n\n"
+
+    # Берем первые 20, чтобы не превысить лимит сообщения
+    for u in users[:20]:
+        u_id = u.get("user_id", "?")
+        u_bal = u.get("balance", 0)
+        u_date = u.get("reg_date", "?")
+        text += f"ID: {u_id} | Баланс: {u_bal} | Рег: {u_date}\n"
+
+    if len(users) > 20:
+        text += f"\n...и еще {len(users) - 20} пользователей."
+
+    await message.answer(text)
+
+
+# --- Удаление по времени (Инлайн меню) ---
+@dp.message(F.text == "🗑 Удалить фото")
+async def delete_photo_menu(message: Message):
+    builder = InlineKeyboardBuilder()
+    builder.row(types.InlineKeyboardButton(text="За 1 минуту", callback_data="del_photo_60"))
+    builder.row(types.InlineKeyboardButton(text="За 1 час", callback_data="del_photo_3600"))
+    builder.row(types.InlineKeyboardButton(text="За 1 день", callback_data="del_photo_86400"))
+    builder.row(types.InlineKeyboardButton(text="За все время", callback_data="del_photo_all"))
+    await message.answer("Выберите период удаления фото:", reply_markup=builder.as_markup())
+
+
+@dp.message(F.text == "🗑 Удалить видео")
+async def delete_video_menu(message: Message):
+    builder = InlineKeyboardBuilder()
+    builder.row(types.InlineKeyboardButton(text="За 1 минуту", callback_data="del_video_60"))
+    builder.row(types.InlineKeyboardButton(text="За 1 час", callback_data="del_video_3600"))
+    builder.row(types.InlineKeyboardButton(text="За 1 день", callback_data="del_video_86400"))
+    builder.row(types.InlineKeyboardButton(text="За все время", callback_data="del_video_all"))
+    await message.answer("Выберите период удаления видео:", reply_markup=builder.as_markup())
+
+
+@dp.callback_query(F.data.startswith("del_photo_"))
+async def process_del_photo(callback: CallbackQuery):
+    time_str = callback.data.split("_")[2]
+    if time_str == "all":
+        await delete_content_by_time('photo', None)
+        await callback.answer("Все фото удалены.")
+    else:
+        seconds = int(time_str)
+        await delete_content_by_time('photo', seconds)
+        await callback.answer(f"Фото за указанный период удалены.")
+
+
+@dp.callback_query(F.data.startswith("del_video_"))
+async def process_del_video(callback: CallbackQuery):
+    time_str = callback.data.split("_")[2]
+    if time_str == "all":
+        await delete_content_by_time('video', None)
+        await callback.answer("Все видео удалены.")
+    else:
+        seconds = int(time_str)
+        await delete_content_by_time('video', seconds)
+        await callback.answer(f"Видео за указанный период удалены.")
+
+
+# --- Остальная админка ---
 @dp.message(F.text == "📸 Добавить фото")
 async def add_ph_start(message: Message, state: FSMContext):
     await message.answer("Отправьте фото:", reply_markup=get_cancel_keyboard())
@@ -734,18 +826,6 @@ async def add_vid_proc(message: Message, state: FSMContext):
     await save_content('video', message.video.file_id)
     await message.answer("✅ Сохранено!", reply_markup=get_admin_keyboard())
     await state.clear()
-
-
-@dp.message(F.text == "🗑 Удалить все фото")
-async def del_ph(message: Message):
-    await delete_all_content('photo')
-    await message.answer("Удалено.")
-
-
-@dp.message(F.text == "🗑 Удалить все видео")
-async def del_vid(message: Message):
-    await delete_all_content('video')
-    await message.answer("Удалено.")
 
 
 @dp.message(F.text == "📢 Рассылка")
