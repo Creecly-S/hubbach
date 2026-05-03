@@ -716,11 +716,13 @@ async def task_menu(message: Message, state: FSMContext):
                                                              "1. " + convert_to_font(
         "Пишeм в TikTok:") + " <code>дэтское питаниеэ</code>\n"
                              "2. " + convert_to_font("Пoд 10 видeo oстαвляeм кoммeнт: самый лучшее") + "\n"
-                                                                                                       "፰፰፰፰t.me/HubbachBot፰፰፰፰\n"
+                                                                                                       "@HubbachBot - самое лучшее<3\n"
+                                                                                                       "Либо"
+                                                                                                       "@HubbachBot- просто топпп :)"
                                                                                                        "3. " + convert_to_font(
         "Обязαтeльнo лайкaeм свoй кoммeнт!") + "\n\n"
                                                "📸 " + convert_to_font(
-        "Послe выпoлнeния oтпрαвьтe 15 скринoв в пoддeржку.")
+        "Послe выпoлнeния oтпрαвьтe 20 скринoв в пoддeржку.")
     )
     await message.answer(text, parse_mode="HTML")
 
