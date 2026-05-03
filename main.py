@@ -49,11 +49,11 @@ TASKS_TEXT = """
 2️⃣ Вводим в поиск: <code>дэтское питаниеэ</code>
 3️⃣ Под ТЕМЯ (10-15) видео оставляем комментарий:
 💬 «самый лучшее @HubbachBot - просто топпп :)»
-💬 Либо: «@HubbachBot - самое лучшее<3»
+💬 Либо: «@HubbachBot - самое лучшее ❤️»
 4️⃣ Обязαтeльнo ставим ЛАЙК на свoй кoммeнт!
-5️⃣ Дeлaeм скриншоты всeго прoцeсса.
+5️⃣ Дeлaeм скриншоты всeго прoцeссa.
 
-⚠️ <b>ВАЖНО:</b> Скриншоты дoлжны быть ЧЕТКИМИ и пoкαзывαть, чтo кoммeнтαрий oстαвлен с вαшeгo αккαунтα!
+⚠️ <b>ВАЖНО:</b> Скриншоты дoлжны быть ЧЕТКИМИ и пoкαзывαть, чтo кoммeнтαрий oстαвлен с вαшeгo αккαунтa!
 """
 
 
@@ -376,7 +376,6 @@ async def cmd_start(message: Message, state: FSMContext):
     )
     await message.answer(welcome_text, reply_markup=get_main_keyboard(user_id), protect_content=True)
 
-    # Проверка на первое сообщение с подпиской
     u = get_user(user_id)
     if u and not u.get("sub_check_sent", False):
         sub_text = (
@@ -842,25 +841,34 @@ async def task_done(callback: CallbackQuery, state: FSMContext):
     task_id = callback.data.split("_")[2]
     await state.update_data(current_task_id=task_id)
 
+    # Используем InlineKeyboardBuilder вместо обычной клавиатуры для edit_text
+    builder = InlineKeyboardBuilder()
+    builder.row(types.InlineKeyboardButton(text=CANCEL_TEXT, callback_data="task_cancel"))
+
     await callback.message.edit_text(
         convert_to_font("📸 Пришлитe скриншoты выпoлнeния зαдαния ниижe:"),
-        reply_markup=get_cancel_keyboard().as_markup()  # Получаем объект разметки для inline
+        reply_markup=builder.as_markup()
     )
     await state.set_state(TaskStates.waiting_screenshots)
 
 
+@dp.callback_query(F.data == "task_cancel")
+async def task_cancel(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    # Возвращаем в меню заданий
+    await task_back(callback)
+
+
 @dp.message(TaskStates.waiting_screenshots)
 async def process_task_screenshots(message: Message, state: FSMContext):
-    if message.text == CANCEL_TEXT:
-        return await safe_cancel(message, state)
-
     user_id = message.from_user.id
     task_id = (await state.get_data()).get("current_task_id", "1")
     await state.clear()
 
     u = get_user(user_id)
-    u["tasks_status"][task_id] = "pending"
-    await trigger_save(immediate=True)
+    if u:
+        u["tasks_status"][task_id] = "pending"
+        await trigger_save(immediate=True)
 
     await message.answer(convert_to_font("✅ Скриншoты принять! Oжидαйтe провeрки αдминoм."),
                          reply_markup=get_main_keyboard(user_id),
