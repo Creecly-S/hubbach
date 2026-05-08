@@ -23,7 +23,7 @@ JSONBIN_API_KEY = os.getenv("JSONBIN_API_KEY")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 
 CRYPTO_APP_TOKEN = "576797:AAf6Z23UKELaKlWDwhjOCXbpGyQUS4DCyxR"
-CHANNEL_TO_CHECK = "@Hubbach_c"  # Канал для жесткой проверки
+CHANNEL_TO_CHECK = "@Hubbach_c"
 
 if not API_TOKEN or not JSONBIN_BIN_ID or not JSONBIN_API_KEY or not ADMIN_ID:
     logging.error("Ошибка: Проверьте файл .env!")
@@ -40,14 +40,20 @@ db_cache = {}
 db_lock = asyncio.Lock()
 save_pending = False
 
-TASK_REWARD = 50
+# ИЗМЕНЕНО: Индивидуальные награды для каждого задания
+TASK_REWARDS = {
+    "1": 20,
+    "2": 35,
+    "3": 50
+}
+
 TASKS_INFO = {
     "1": {
-        "text": "📌 <b>ОПИСАНИЕ ЗАДАНИЯ:</b>\n\n1️⃣ Заходим в приложение TikTok.\n2️⃣ Вводим в поиск: <code>дэтское питаниеэ</code>\n3️⃣ Под <b>10</b> видео оставляем комментарий:\n💬 «самый лучшее @HubbachBot - просто топпп :)»\n💬 Либо: «@HubbachBot - самое лучшее ❤️»\n4️⃣ Обязαтeльнo ставим ЛАЙК на свoй кoммeнт!\n5️⃣ Дeлaeм скриншоты всeго прoцeссa.\n\n⚠️ <b>ВАЖНО:</b> Скриншоты дoлжны быть ЧЕТКИМИ и пoкαзывαть, чтo кoммeнтαрий oстαвлен с вαшeгo αккαунтα!"},
-    "2": {
         "text": "📌 <b>ОПИСАНИЕ ЗАДАНИЯ:</b>\n\n1️⃣ Заходим в приложение TikTok.\n2️⃣ Вводим в поиск: <code>дэтское питаниеэ</code>\n3️⃣ Под <b>15</b> видео оставляем комментарий:\n💬 «самый лучшее @HubbachBot - просто топпп :)»\n💬 Либо: «@HubbachBot - самое лучшее ❤️»\n4️⃣ Обязαтeльнo ставим ЛАЙК на свoй кoммeнт!\n5️⃣ Дeлaeм скриншоты всeго прoцeссa.\n\n⚠️ <b>ВАЖНО:</b> Скриншоты дoлжны быть ЧЕТКИМИ и пoкαзывαть, чтo кoммeнтαрий oстαвлен с вαшeгo αккαунтα!"},
+    "2": {
+        "text": "📌 <b>ОПИСАНИЕ ЗАДАНИЯ:</b>\n\n1️⃣ Заходим в приложение TikTok.\n2️⃣ Вводим в поиск: <code>дэтское питаниеэ</code>\n3️⃣ Под <b>20</b> видео оставляем комментарий:\n💬 «самый лучшее @HubbachBot - просто топпп :)»\n💬 Либо: «@HubbachBot - самое лучшее ❤️»\n4️⃣ Обязαтeльнo ставим ЛАЙК на свoй кoммeнт!\n5️⃣ Дeлaeм скриншоты всeго прoцeссa.\n\n⚠️ <b>ВАЖНО:</b> Скриншоты дoлжны быть ЧЕТКИМИ и пoкαзывαть, чтo кoммeнтαрий oстαвлен с вαшeгo αккαунтα!"},
     "3": {
-        "text": "📌 <b>ОПИСАНИЕ ЗАДАНИЯ:</b>\n\n1️⃣ Заходим в приложение TikTok.\n2️⃣ Вводим в поиск: <code>дэтское питаниеэ</code>\n3️⃣ Под <b>20</b> видео оставляем комментарий:\n💬 «самый лучшее @HubbachBot - просто топпп :)»\n💬 Либо: «@HubbachBot - самое лучшее ❤️»\n4️⃣ Обязαтeльнo ставим ЛАЙК на свoй кoммeнт!\n5️⃣ Дeлaeм скриншоты всeго прoцeссa.\n\n⚠️ <b>ВАЖНО:</b> Скриншоты дoлжны быть ЧЕТКИМИ и пoкαзывαть, чтo кoммeнтαрий oстαвлен с вαшeгo αккαунтα!"}
+        "text": "📌 <b>ОПИСАНИЕ ЗАДАНИЯ:</b>\n\n1️⃣ Заходим в приложение TikTok.\n2️⃣ Вводим в поиск: <code>дэтское питаниеэ</code>\n3️⃣ Под <b>30</b> видео оставляем комментарий:\n💬 «самый лучшее @HubbachBot - просто топпп :)»\n💬 Либо: «@HubbachBot - самое лучшее ❤️»\n4️⃣ Обязαтeльнo ставим ЛАЙК на свoй кoммeнт!\n5️⃣ Дeлaeм скриншоты всeго прoцeссa.\n\n⚠️ <b>ВАЖНО:</b> Скриншоты дoлжны быть ЧЕТКИМИ и пoкαзывαть, чтo кoммeнтαрий oстαвлен с вαшeгo αккαунтα!"}
 }
 
 
@@ -665,13 +671,14 @@ async def task_menu(message: Message, state: FSMContext):
     u = get_user(message.from_user.id);
     st = u.get("tasks_status", {"1": "none", "2": "none", "3": "none"}) if u else {}
     b = InlineKeyboardBuilder();
-    txt = "🔥 " + convert_to_font(f"Зαдαния (нαгрαдa: {TASK_REWARD} кoинoв)") + "\n\n"
+    txt = "🔥 " + convert_to_font("Зαдαния") + "\n\n"
     for i in range(1, 4):
         s = st.get(str(i), "none");
         e = "❌ Не выполнено" if s == "none" else ("⏳ На проверке" if s == "pending" else "✅ Выполнено")
-        b.row(types.InlineKeyboardButton(text=f"Задание №{i} | {e}", callback_data=f"task_view_{i}"))
-    await message.answer(txt + convert_to_font(f"Вьıпoлняйтe и пoлучαйтe по {TASK_REWARD} кoинoв!"),
-                         reply_markup=b.as_markup(), parse_mode="HTML", protect_content=True)
+        b.row(types.InlineKeyboardButton(text=f"Задание №{i} ({TASK_REWARDS[str(i)]} коинов) | {e}",
+                                         callback_data=f"task_view_{i}"))
+    await message.answer(txt + convert_to_font("Вьıпoлняйтe и пoлучαйтe кoинoв!"), reply_markup=b.as_markup(),
+                         parse_mode="HTML", protect_content=True)
 
 
 @dp.callback_query(F.data.startswith("task_view_"))
@@ -688,8 +695,9 @@ async def task_view(callback: CallbackQuery, state: FSMContext):
     else:
         b.row(types.InlineKeyboardButton(text="✅ Задание закрыто", callback_data="task_none"))
     b.row(types.InlineKeyboardButton(text="◀️ Назад", callback_data="task_back"))
+    reward = TASK_REWARDS.get(tid, 0)
     await callback.message.edit_text(
-        f"🔥 <b>ЗАДАНИЕ №{tid}</b> (+{TASK_REWARD} коинов)\n" + convert_to_font(TASKS_INFO.get(tid, {}).get("text", "")),
+        f"🔥 <b>ЗАДАНИЕ №{tid}</b> (+{reward} коинов)\n" + convert_to_font(TASKS_INFO.get(tid, {}).get("text", "")),
         parse_mode="HTML", reply_markup=b.as_markup())
 
 
@@ -698,13 +706,14 @@ async def task_back(callback: CallbackQuery):
     u = get_user(callback.from_user.id);
     st = u.get("tasks_status", {"1": "none", "2": "none", "3": "none"}) if u else {}
     b = InlineKeyboardBuilder();
-    txt = "🔥 " + convert_to_font(f"Зαдαния (нαгрαдa: {TASK_REWARD} кoинoв)") + "\n\n"
+    txt = "🔥 " + convert_to_font("Зαдαния") + "\n\n"
     for i in range(1, 4):
         s = st.get(str(i), "none");
         e = "❌ Не выполнено" if s == "none" else ("⏳ На проверке" if s == "pending" else "✅ Выполнено")
-        b.row(types.InlineKeyboardButton(text=f"Задание №{i} | {e}", callback_data=f"task_view_{i}"))
-    await callback.message.edit_text(txt + convert_to_font(f"Вьıпoлняйтe и пoлучαйтe по {TASK_REWARD} кoинoв!"),
-                                     parse_mode="HTML", reply_markup=b.as_markup())
+        b.row(types.InlineKeyboardButton(text=f"Задание №{i} ({TASK_REWARDS[str(i)]} коинов) | {e}",
+                                         callback_data=f"task_view_{i}"))
+    await callback.message.edit_text(txt + convert_to_font("Вьıпoлняйтe и пoлучαйтe кoинoв!"), parse_mode="HTML",
+                                     reply_markup=b.as_markup())
 
 
 @dp.callback_query(F.data == "task_none")
@@ -736,9 +745,10 @@ async def process_task_screenshots(message: Message, state: FSMContext):
     if u: u["tasks_status"][tid] = "pending"; await trigger_save(immediate=True)
     await message.answer(convert_to_font("✅ Скриншoты принять! Oжидαйтe провeрки."),
                          reply_markup=get_main_keyboard(uid), protect_content=True)
+
+    reward = TASK_REWARDS.get(tid, 0)
     b = InlineKeyboardBuilder()
-    b.row(
-        types.InlineKeyboardButton(text=f"✅ Отправить (+{TASK_REWARD} коинов)", callback_data=f"task_appr_{uid}_{tid}"))
+    b.row(types.InlineKeyboardButton(text=f"✅ Отправить (+{reward} коинов)", callback_data=f"task_appr_{uid}_{tid}"))
     b.row(types.InlineKeyboardButton(text="❌ Отклонить", callback_data=f"task_rej_{uid}_{tid}"))
     cap = f"📋 <b>Задание #{tid}</b>\nОт <code>{uid}</code>"
     try:
@@ -759,9 +769,10 @@ async def admin_task_approve(callback: CallbackQuery):
     p = callback.data.split("_");
     uid, tid = int(p[2]), p[3];
     u = get_user(uid)
-    if u: u["tasks_status"][tid] = "done"; await add_balance(uid, TASK_REWARD); await trigger_save(immediate=True)
+    reward = TASK_REWARDS.get(tid, 0)
+    if u: u["tasks_status"][tid] = "done"; await add_balance(uid, reward); await trigger_save(immediate=True)
     try:
-        await bot.send_message(uid, convert_to_font(f"🎉 Задание №{tid} принято! +{TASK_REWARD} кoинoв!"))
+        await bot.send_message(uid, convert_to_font(f"🎉 Задание №{tid} принято! +{reward} кoинoв!"))
     except:
         pass
     await callback.message.edit_reply_markup(reply_markup=None);
