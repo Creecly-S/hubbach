@@ -8,7 +8,7 @@ import string
 from datetime import datetime
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import Command
+from aiogram.filters import Command, StateFilter
 from aiogram.types import Message, CallbackQuery
 from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
@@ -23,7 +23,7 @@ JSONBIN_API_KEY = os.getenv("JSONBIN_API_KEY")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 
 CRYPTO_APP_TOKEN = "576797:AAf6Z23UKELaKlWDwhjOCXbpGyQUS4DCyxR"
-TON_PRICE_USD = 6.5
+CHANNEL_TO_CHECK = "@Hubbach_c"  # Канал для проверки подписки
 
 if not API_TOKEN or not JSONBIN_BIN_ID or not JSONBIN_API_KEY or not ADMIN_ID:
     logging.error("Ошибка: Проверьте файл .env!")
@@ -42,19 +42,47 @@ save_pending = False
 
 # Данные заданий
 TASK_REWARD = 50
-TASKS_TEXT = """
-📌 <b>ОПИСАНИЕ ЗАДАНИЯ:</b>
-
-1️⃣ Заходим в приложение TikTok.
-2️⃣ Вводим в поиск: <code>дэтское питаниеэ</code>
-3️⃣ Под ТЕМЯ (10-15) видео оставляем комментарий:
-💬 «самый лучшее @HubbachBot - просто топпп :)»
-💬 Либо: «@HubbachBot - самое лучшее ❤️»
-4️⃣ Обязαтeльнo ставим ЛАЙК на свoй кoммeнт!
-5️⃣ Дeлaeм скриншоты всeго прoцeссa.
-
-⚠️ <b>ВАЖНО:</b> Скриншоты дoлжны быть ЧЕТКИМИ и пoкαзывαть, чтo кoммeнтαрий oстαвлен с вαшeгo αккαунтa!
-"""
+TASKS_INFO = {
+    "1": {
+        "text": (
+            "📌 <b>ОПИСАНИЕ ЗАДАНИЯ:</b>\n\n"
+            "1️⃣ Заходим в приложение TikTok.\n"
+            "2️⃣ Вводим в поиск: <code>дэтское питаниеэ</code>\n"
+            "3️⃣ Под <b>10</b> видео оставляем комментарий:\n"
+            "💬 «самый лучшее @HubbachBot - просто топпп :)»\n"
+            "💬 Либо: «@HubbachBot - самое лучшее ❤️»\n"
+            "4️⃣ Обязαтeльнo ставим ЛАЙК на свoй кoммeнт!\n"
+            "5️⃣ Дeлaeм скриншоты всeго прoцeссa.\n\n"
+            "⚠️ <b>ВАЖНО:</b> Скриншоты дoлжны быть ЧЕТКИМИ и пoкαзывαть, чтo кoммeнтαрий oстαвлен с вαшeгo αккαунтα!"
+        )
+    },
+    "2": {
+        "text": (
+            "📌 <b>ОПИСАНИЕ ЗАДАНИЯ:</b>\n\n"
+            "1️⃣ Заходим в приложение TikTok.\n"
+            "2️⃣ Вводим в поиск: <code>дэтское питаниеэ</code>\n"
+            "3️⃣ Под <b>15</b> видео оставляем комментарий:\n"
+            "💬 «самый лучшее @HubbachBot - просто топпп :)»\n"
+            "💬 Либо: «@HubbachBot - самое лучшее ❤️»\n"
+            "4️⃣ Обязαтeльнo ставим ЛАЙК на свoй кoммeнт!\n"
+            "5️⃣ Дeлaeм скриншоты всeго прoцeссa.\n\n"
+            "⚠️ <b>ВАЖНО:</b> Скриншоты дoлжны быть ЧЕТКИМИ и пoкαзывαть, чтo кoммeнтαрий oстαвлен с вαшeгo αккαунтα!"
+        )
+    },
+    "3": {
+        "text": (
+            "📌 <b>ОПИСАНИЕ ЗАДАНИЯ:</b>\n\n"
+            "1️⃣ Заходим в приложение TikTok.\n"
+            "2️⃣ Вводим в поиск: <code>дэтское питаниеэ</code>\n"
+            "3️⃣ Под <b>20</b> видео оставляем комментарий:\n"
+            "💬 «самый лучшее @HubbachBot - просто топпп :)»\n"
+            "💬 Либо: «@HubbachBot - самое лучшее ❤️»\n"
+            "4️⃣ Обязαтeльнo ставим ЛАЙК на свoй кoммeнт!\n"
+            "5️⃣ Дeлaeм скриншоты всeго прoцeссa.\n\n"
+            "⚠️ <b>ВАЖНО:</b> Скриншоты дoлжны быть ЧЕТКИМИ и пoкαзывαть, чтo кoммeнтαрий oстαвлен с вαшeгo αккαунтα!"
+        )
+    }
+}
 
 
 # ================= РАБОТА С БАЗОЙ ДАННЫХ =================
@@ -77,8 +105,6 @@ async def fetch_db():
                     for u in db_cache.get("users", []):
                         if "last_bonus" not in u:
                             u["last_bonus"] = 0
-                        if "sub_check_sent" not in u:
-                            u["sub_check_sent"] = False
                         if "tasks_status" not in u:
                             u["tasks_status"] = {"1": "none", "2": "none", "3": "none"}
 
@@ -121,6 +147,15 @@ async def background_saver():
 
 
 # ================= ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =================
+async def is_subscribed(user_id: int) -> bool:
+    try:
+        member = await bot.get_chat_member(chat_id=CHANNEL_TO_CHECK, user_id=user_id)
+        return member.status in ["member", "administrator", "creator"]
+    except Exception as e:
+        logging.error(f"Ошибка проверки подписки (бот админ в канале?): {e}")
+        return True  # Если ошибка доступа, пропускаем пользователя, чтобы не заблокировать навсегда
+
+
 def get_user(user_id):
     for u in db_cache.get("users", []):
         if u["user_id"] == user_id: return u
@@ -141,7 +176,6 @@ async def add_user(user_id, referrer_id=None):
         "ref_count": 0,
         "referrer_id": referrer_id,
         "last_bonus": 0,
-        "sub_check_sent": False,
         "tasks_status": {"1": "none", "2": "none", "3": "none"}
     }
     db_cache.setdefault("users", []).append(new_user)
@@ -254,6 +288,10 @@ async def create_crypto_invoice(amount: float, asset: str):
 
 
 # ================= FSM СОСТОЯНИЯ =================
+class SubStates(StatesGroup):
+    waiting_sub = State()
+
+
 class PaymentStates(StatesGroup):
     waiting_amount = State()
     waiting_screenshot = State()
@@ -355,7 +393,7 @@ async def safe_cancel(message: Message, state: FSMContext):
         await message.answer(convert_to_font("🚫 Отменено."), reply_markup=get_main_keyboard(message.from_user.id))
 
 
-# ================= ОБРАБОТЧИКИ ПОЛЬЗОВАТЕЛЕЙ =================
+# ================= ПРОВЕРКА ПОДПИСКИ И СТАРТ =================
 @dp.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
@@ -369,6 +407,21 @@ async def cmd_start(message: Message, state: FSMContext):
 
     await add_user(user_id, referrer_id)
 
+    # Проверка подписки
+    if not await is_subscribed(user_id):
+        builder = InlineKeyboardBuilder()
+        builder.row(types.InlineKeyboardButton(text="✅ Я подписался", callback_data="check_sub"))
+        await message.answer(
+            "🚫 <b>Доступ закрыт</b>\n\n"
+            "Для использования бота вам необходимо подписаться на наш канал:\n"
+            f"👉 {CHANNEL_TO_CHECK}\n\n"
+            "После подписки нажмите кнопку ниже ⬇️",
+            parse_mode="HTML",
+            reply_markup=builder.as_markup()
+        )
+        await state.set_state(SubStates.waiting_sub)
+        return
+
     welcome_text = (
         "💎 ━━━━━━━━━━━━━━━ 💎\n"
         f"{convert_to_font('Hubbαch - тут вьı нαйдете тo сαмoe')}\n"
@@ -376,19 +429,31 @@ async def cmd_start(message: Message, state: FSMContext):
     )
     await message.answer(welcome_text, reply_markup=get_main_keyboard(user_id), protect_content=True)
 
-    u = get_user(user_id)
-    if u and not u.get("sub_check_sent", False):
-        sub_text = (
-            "🔔 <b>ОБЯЗАТЕЛЬНЫЙ ШАГ</b> 🔔\n\n"
-            "Прежде чем начать пользоваться ботом, вам необходимо подписаться на наш официальный канал:\n\n"
-            "👉 @Hubbach_c\n\n"
-            "Без подписки доступ к контенту будет закрыт!"
+
+@dp.callback_query(SubStates.waiting_sub, F.data == "check_sub")
+async def check_sub_callback(callback: CallbackQuery, state: FSMContext):
+    if await is_subscribed(callback.from_user.id):
+        await state.clear()
+        await callback.message.delete()
+        user_id = callback.from_user.id
+        welcome_text = (
+            "💎 ━━━━━━━━━━━━━━━ 💎\n"
+            f"{convert_to_font('Hubbαch - тут вьı нαйдете тo сαмoe')}\n"
+            "💎 ━━━━━━━━━━━━━━━ 💎"
         )
-        await message.answer(sub_text, parse_mode="HTML", protect_content=True)
-        u["sub_check_sent"] = True
-        await trigger_save(immediate=True)
+        await callback.message.answer(welcome_text, reply_markup=get_main_keyboard(user_id), protect_content=True)
+        await callback.answer("✅ Добро пожаловать!", show_alert=False)
+    else:
+        await callback.answer("❌ Вы еще не подписались! Подпишитесь на канал и попробуйте снова.", show_alert=True)
 
 
+# Блокировка всех остальных сообщений, пока человек не подпишется
+@dp.message(SubStates.waiting_sub)
+async def block_while_unsubscribed(message: Message):
+    await message.answer("❌ Сначала подпишитесь на канал, чтобы получить доступ к боту!")
+
+
+# ================= ОБРАБОТЧИКИ ПОЛЬЗОВАТЕЛЕЙ =================
 @dp.message(F.text == "🏠 Главное меню")
 async def back_to_main_menu(message: Message, state: FSMContext):
     await state.clear()
@@ -449,7 +514,6 @@ async def menu_balance(message: Message, state: FSMContext):
     await state.clear()
     builder = InlineKeyboardBuilder()
     builder.row(types.InlineKeyboardButton(text="🪙 CryptoBot (USDT)", callback_data="pay_usdt"))
-    builder.row(types.InlineKeyboardButton(text="💎 CryptoBot (TON)", callback_data="pay_ton"))
     await message.answer(convert_to_font("💳 Вьıберите спосoб oплαтьь:"), reply_markup=builder.as_markup(),
                          protect_content=True)
 
@@ -580,15 +644,11 @@ async def shop_buy(callback: CallbackQuery):
         pass
 
 
-# ================= ОПЛАТА ЧЕРЕЗ CRYPTOBOT =================
-@dp.callback_query(F.data.startswith("pay_"))
+# ================= ОПЛАТА ЧЕРЕЗ CRYPTOBOT (ТОЛЬКО USDT) =================
+@dp.callback_query(F.data == "pay_usdt")
 async def pay_start(callback: CallbackQuery, state: FSMContext):
     await state.clear()
-    asset = "USDT" if "usdt" in callback.data else "TON"
-    await state.update_data(asset=asset)
-
-    text = convert_to_font(
-        f"💳 Oплαтa через {asset}\n\nКурс: 50 кoинoв = 0.89$\nМинимум: 50\n\nВведитe кoличествo кoинoв:")
+    text = convert_to_font("💳 Oплαтa через USDT\n\nКурс: 50 кoинoв = 0.89$\nМинимум: 50\n\nВведитe кoличествo кoинoв:")
     await callback.message.edit_text(text)
     await state.set_state(PaymentStates.waiting_amount)
 
@@ -603,26 +663,20 @@ async def process_payment_amount(message: Message, state: FSMContext):
         if amount < 50:
             return await message.answer(convert_to_font("❌ Минимум 50 кoинoв!"), protect_content=True)
 
-        cost_usd = (amount / 50) * 0.89
-        asset = (await state.get_data()).get("asset")
-
-        if asset == "TON":
-            cost_crypto = cost_usd / TON_PRICE_USD
-        else:
-            cost_crypto = cost_usd
+        cost_usd = round((amount / 50) * 0.89, 2)
 
         await state.update_data(pay_amount=amount)
 
         status_msg = await message.answer("⏳ Создаем счет...", protect_content=True)
-        invoice_link = await create_crypto_invoice(cost_crypto, asset)
+        invoice_link = await create_crypto_invoice(cost_usd, "USDT")
         await status_msg.delete()
 
         if invoice_link:
             builder = InlineKeyboardBuilder()
-            builder.row(types.InlineKeyboardButton(text=f"💳 Оплатить {asset}", url=invoice_link))
+            builder.row(types.InlineKeyboardButton(text="💳 Оплатить USDT", url=invoice_link))
             builder.row(types.InlineKeyboardButton(text="✅ Я оплатил", callback_data="paid_done"))
 
-            text = convert_to_font(f"💡 К oплαтe: <b>{cost_crypto:.2f} {asset}</b> зα <b>{amount} кoинoв</b>")
+            text = convert_to_font(f"💡 К oплαтe: <b>{cost_usd}$ USDT</b> зα <b>{amount} кoинoв</b>")
             await message.answer(text, parse_mode="HTML", reply_markup=builder.as_markup(), protect_content=True)
         else:
             await message.answer(
@@ -659,7 +713,7 @@ async def process_payment_screenshot(message: Message, state: FSMContext):
         await bot.send_photo(
             ADMIN_ID,
             photo=message.photo[-1].file_id,
-            caption=f"💰 <b>Пополнение</b>\nЮзер: <code>{user_id}</code>\nСумма: {amount} коинов",
+            caption=f"💰 <b>Пополнение USDT</b>\nЮзер: <code>{user_id}</code>\nСумма: {amount} коинов",
             parse_mode="HTML",
             reply_markup=builder.as_markup()
         )
@@ -803,7 +857,9 @@ async def task_view(callback: CallbackQuery, state: FSMContext):
 
     builder.row(types.InlineKeyboardButton(text="◀️ Назад", callback_data="task_back"))
 
-    text = f"🔥 <b>ЗАДАНИЕ №{task_id}</b> (+{TASK_REWARD} коинов)\n" + convert_to_font(TASKS_TEXT)
+    task_text = TASKS_INFO.get(task_id, {}).get("text", "Ошибка загрузки текста задания.")
+
+    text = f"🔥 <b>ЗАДАНИЕ №{task_id}</b> (+{TASK_REWARD} коинов)\n" + convert_to_font(task_text)
     await callback.message.edit_text(text, parse_mode="HTML", reply_markup=builder.as_markup())
 
 
@@ -841,7 +897,6 @@ async def task_done(callback: CallbackQuery, state: FSMContext):
     task_id = callback.data.split("_")[2]
     await state.update_data(current_task_id=task_id)
 
-    # Используем InlineKeyboardBuilder вместо обычной клавиатуры для edit_text
     builder = InlineKeyboardBuilder()
     builder.row(types.InlineKeyboardButton(text=CANCEL_TEXT, callback_data="task_cancel"))
 
@@ -855,7 +910,6 @@ async def task_done(callback: CallbackQuery, state: FSMContext):
 @dp.callback_query(F.data == "task_cancel")
 async def task_cancel(callback: CallbackQuery, state: FSMContext):
     await state.clear()
-    # Возвращаем в меню заданий
     await task_back(callback)
 
 
