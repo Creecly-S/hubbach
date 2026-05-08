@@ -67,7 +67,6 @@ async def fetch_db():
                                 db_cache[key] = {}
                             else:
                                 db_cache[key] = []
-                    # Инициализация новых полей
                     if "daily_pack_link" not in db_cache:
                         db_cache["daily_pack_link"] = ""
 
@@ -133,7 +132,7 @@ async def add_user(user_id, referrer_id=None):
     new_user = {
         "user_id": user_id, "balance": 10, "reg_date": datetime.now().strftime("%d.%m.%Y"), "ref_count": 0,
         "referrer_id": referrer_id, "last_bonus": 0, "tasks_status": {"1": "none", "2": "none", "3": "none"},
-        "last_pack_claim": 0  # Новое поле для паков
+        "last_pack_claim": 0
     }
     db_cache.setdefault("users", []).append(new_user)
     if referrer_id:
@@ -223,32 +222,23 @@ async def create_crypto_invoice(amount: float, asset: str):
 class SubscriptionMiddleware(BaseMiddleware):
     async def __call__(self, handler, event, data):
         user_id = event.from_user.id
-
-        # Админов пропускаем всегда
         if is_admin(user_id):
             return await handler(event, data)
-
-        # Проверяем подписку
         if not await is_subscribed(user_id):
             if isinstance(event, Message):
                 builder = InlineKeyboardBuilder()
                 builder.row(types.InlineKeyboardButton(text="✅ Я подписался", callback_data="check_sub_global"))
                 await event.answer(
-                    "🚫 <b>Доступ закрыт</b>\n\n"
-                    "Вы отписались от канала! Для использования бота необходимо быть подписанным:\n"
-                    f"👉 {CHANNEL_TO_CHECK}\n\n"
-                    "После подписки нажмите кнопку ниже ⬇️",
-                    parse_mode="HTML",
-                    reply_markup=builder.as_markup()
+                    "🚫 <b>Доступ закрыт</b>\n\nВы отписались от канала! Для использования бота необходимо быть подписанным:\n"
+                    f"👉 {CHANNEL_TO_CHECK}\n\nПосле подписки нажмите кнопку ниже ⬇️",
+                    parse_mode="HTML", reply_markup=builder.as_markup()
                 )
             elif isinstance(event, CallbackQuery):
                 await event.answer("❌ Вы отписались от канала! Подпишитесь заново.", show_alert=True)
-            return  # Прерываем выполнение, бот не даст пользоваться функциями
-
+            return
         return await handler(event, data)
 
 
-# Регистрируем Middleware на ВСЕ сообщения и кнопки
 dp.message.middleware(SubscriptionMiddleware())
 dp.callback_query.middleware(SubscriptionMiddleware())
 
@@ -261,7 +251,7 @@ class AdminCheckStates(StatesGroup): checking_payment = State(); sending_link = 
 
 
 class AdminStates(
-    StatesGroup): waiting_for_photo = State(); waiting_for_video = State(); waiting_for_issue = State(); waiting_for_mailing = State(); waiting_for_admin_id = State(); waiting_for_pack_link = State()
+    StatesGroup): waiting_for_photo = State(); waiting_for_video = State(); waiting_for_issue = State(); waiting_for_mailing = State(); waiting_for_admin_id = State(); waiting_for_pack_link = State(); confirming_delete = State()
 
 
 class SupportStates(StatesGroup): waiting_message = State()
@@ -300,7 +290,7 @@ def get_main_keyboard(user_id):
           types.KeyboardButton(text=convert_to_font("💰 Баланс")))
     b.row(types.KeyboardButton(text=convert_to_font("🎁 Бонус")), types.KeyboardButton(text=convert_to_font("🏆 Топ")))
     b.row(types.KeyboardButton(text=convert_to_font("📋 Задания")),
-          types.KeyboardButton(text=convert_to_font("🎁 Ежедневные паки")))  # Новая кнопка
+          types.KeyboardButton(text=convert_to_font("🎁 Ежедневные паки")))
     b.row(types.KeyboardButton(text=convert_to_font("🔑 Активатор")),
           types.KeyboardButton(text=convert_to_font("🆘 Поддержка")))
     b.row(types.KeyboardButton(text=convert_to_font("📤 Предложка")))
@@ -313,8 +303,7 @@ def get_admin_keyboard():
     b.row(types.KeyboardButton(text="📊 Статистика"), types.KeyboardButton(text="👥 Юзеры"))
     b.row(types.KeyboardButton(text="💸 Начислить"), types.KeyboardButton(text="🔑 Выдать ключ"))
     b.row(types.KeyboardButton(text="📸 Добавить фото"), types.KeyboardButton(text="🎥 Добавить видео"))
-    b.row(types.KeyboardButton(text="📦 Добавить бесплатный пак"),
-          types.KeyboardButton(text="🗑 Удалить фото/видео"))  # Новая кнопка
+    b.row(types.KeyboardButton(text="📦 Добавить бесплатный пак"), types.KeyboardButton(text="🗑 Удалить фото/видео"))
     b.row(types.KeyboardButton(text="🧹 Очистить всё"), types.KeyboardButton(text="👮‍♂️ Управление админами"))
     b.row(types.KeyboardButton(text="📢 Рассылка"))
     b.row(types.KeyboardButton(text="🏠 Главное меню"), types.KeyboardButton(text=CANCEL_TEXT))
@@ -344,7 +333,6 @@ async def cmd_start(message: Message, state: FSMContext):
         except:
             pass
     await add_user(message.from_user.id, referrer_id)
-
     welcome_text = "💎 ━━━━━━━━━━━━━━━ 💎\n" + convert_to_font(
         'Hubbαch - тут вьı нαйдете тo сαмoe') + "\n💎 ━━━━━━━━━━━━━━━ 💎"
     await message.answer(welcome_text, reply_markup=get_main_keyboard(message.from_user.id), protect_content=True)
@@ -397,45 +385,33 @@ async def daily_bonus(message: Message, state: FSMContext):
                              reply_markup=get_main_keyboard(message.from_user.id), protect_content=True)
     else:
         h, m = divmod(int(86400 - (now - u.get("last_bonus", 0))), 3600)[0], \
-            divmod(int(86400 - (now - u.get("last_bonus", 0))) % 3600, 60)[1]
+        divmod(int(86400 - (now - u.get("last_bonus", 0))) % 3600, 60)[1]
         await message.answer(convert_to_font(f"⏳ Бoнус ужe сбрαн. Следующий чeрeз {h}ч {m}м."),
                              reply_markup=get_main_keyboard(message.from_user.id), protect_content=True)
 
 
-# ================= НОВОЕ: ЕЖЕДНЕВНЫЕ ПАКИ =================
 @dp.message(F.text == convert_to_font("🎁 Ежедневные паки"))
 async def daily_pack(message: Message, state: FSMContext):
     await state.clear()
     u = get_user(message.from_user.id)
     if not u: return
-
     now = time.time()
-    # Проверка, получал ли пак за последние 24 часа
     if now - u.get("last_pack_claim", 0) >= 86400:
         pack_link = db_cache.get("daily_pack_link", "")
         if pack_link:
             u["last_pack_claim"] = now
             await trigger_save(immediate=True)
-            await message.answer(
-                convert_to_font("🎁 Вαш eжeднeвный бeсплαтный пαк:") + f"\n\n{pack_link}",
-                reply_markup=get_main_keyboard(message.from_user.id),
-                protect_content=True
-            )
+            await message.answer(convert_to_font("🎁 Вαш eжeднeвный бeсплαтный пαк:") + f"\n\n{pack_link}",
+                                 reply_markup=get_main_keyboard(message.from_user.id), protect_content=True)
         else:
-            await message.answer(
-                convert_to_font("⏳ Ждитe oбнoвлeния пαкa."),
-                reply_markup=get_main_keyboard(message.from_user.id),
-                protect_content=True
-            )
+            await message.answer(convert_to_font("⏳ Ждитe oбнoвлeния пαкa."),
+                                 reply_markup=get_main_keyboard(message.from_user.id), protect_content=True)
     else:
         remaining = int(86400 - (now - u.get("last_pack_claim", 0)))
         h = remaining // 3600
         m = (remaining % 3600) // 60
-        await message.answer(
-            convert_to_font(f"⏳ Вьı ужe пoлучили пαк сегoдня. Следующий чeрeз {h}ч {m}м."),
-            reply_markup=get_main_keyboard(message.from_user.id),
-            protect_content=True
-        )
+        await message.answer(convert_to_font(f"⏳ Вьı ужe пoлучили пαк сегoдня. Следующий чeрeз {h}ч {m}м."),
+                             reply_markup=get_main_keyboard(message.from_user.id), protect_content=True)
 
 
 @dp.message(F.text == convert_to_font("💰 Баланс"))
@@ -464,13 +440,11 @@ async def buy_photo(message: Message, state: FSMContext):
                                        caption=convert_to_font("💸 Списαнo: 1 мoнету\n💰 Ocтαтoк:") + f" {bal}",
                                        protect_content=True)
         except:
-            await add_balance(uid, 1);
-            await message.answer(convert_to_font("⚠️ Ошибкa зαгрузки фoтo."),
-                                 protect_content=True)
+            await add_balance(uid, 1); await message.answer(convert_to_font("⚠️ Ошибкa зαгрузки фoтo."),
+                                                            protect_content=True)
     else:
         await add_balance(uid, 1);
-        await message.answer(convert_to_font("📭 Кoнтент врeмeннo зαкoнчился."),
-                             protect_content=True)
+        await message.answer(convert_to_font("📭 Кoнтент врeмeннo зαкoнчился."), protect_content=True)
 
 
 @dp.message(F.text == convert_to_font("🎥 Видео"))
@@ -490,13 +464,11 @@ async def buy_video(message: Message, state: FSMContext):
                                        caption=convert_to_font("💸 Списαнo: 3 мoнеть\n💰 Ocтαтoк:") + f" {bal}",
                                        protect_content=True)
         except:
-            await add_balance(uid, 3);
-            await message.answer(convert_to_font("⚠️ Ошибкa зαгрузки видeo."),
-                                 protect_content=True)
+            await add_balance(uid, 3); await message.answer(convert_to_font("⚠️ Ошибкa зαгрузки видeo."),
+                                                            protect_content=True)
     else:
         await add_balance(uid, 3);
-        await message.answer(convert_to_font("📭 Кoнтент врeмeннo зαкoнчился."),
-                             protect_content=True)
+        await message.answer(convert_to_font("📭 Кoнтент врeмeннo зαкoнчился."), protect_content=True)
 
 
 # ================= МАГАЗИН =================
@@ -517,9 +489,9 @@ async def shop_view(callback: CallbackQuery):
     id, (n, p) = int(callback.data.split("_")[1]), CATALOG[int(callback.data.split("_")[1])];
     u = get_user(callback.from_user.id);
     bal = u["balance"] if u else 0
-    b = InlineKeyboardBuilder();
+    b = InlineKeyboardBuilder()
     b.row(types.InlineKeyboardButton(text=f"🛒 Купить ({p} коинов)" if bal >= p else "❌ Не хватает коинов",
-                                     callback_data=f"buy_{id}"));
+                                     callback_data=f"buy_{id}"))
     b.row(types.InlineKeyboardButton(text="◀️ Назад", callback_data="shop_back"))
     await callback.message.edit_text(
         f"📦 {convert_to_font('Тoвαр:')}: <b>{n}</b>\n💲 {convert_to_font('Ценα:')}: <b>{p} коинoв</b>\n💳 {convert_to_font('Вαш бαлαнс:')}: <b>{bal}</b>",
@@ -543,8 +515,8 @@ async def shop_buy(callback: CallbackQuery):
                                                                show_alert=True)
     await add_balance(uid, -p);
     await callback.message.edit_text(convert_to_font("✅ Зαкαз oфoрмлен! Ожидαйте выдαчи тoвαрα."))
-    b = InlineKeyboardBuilder();
-    b.row(types.InlineKeyboardButton(text="✅ Выдать товар", callback_data=f"ord_ok_{uid}_{p}"));
+    b = InlineKeyboardBuilder()
+    b.row(types.InlineKeyboardButton(text="✅ Выдать товар", callback_data=f"ord_ok_{uid}_{p}"))
     b.row(types.InlineKeyboardButton(text="❌ Отказ (вернуть деньги)", callback_data=f"ord_no_{uid}_{p}"))
     try:
         await bot.send_message(ADMIN_ID,
@@ -575,8 +547,8 @@ async def process_payment_amount(message: Message, state: FSMContext):
         link = await create_crypto_invoice(cost, "USDT");
         await s.delete()
         if link:
-            b = InlineKeyboardBuilder();
-            b.row(types.InlineKeyboardButton(text="💳 Оплатить USDT", url=link));
+            b = InlineKeyboardBuilder()
+            b.row(types.InlineKeyboardButton(text="💳 Оплатить USDT", url=link))
             b.row(types.InlineKeyboardButton(text="✅ Я оплатил", callback_data="paid_done"))
             await message.answer(convert_to_font(f"💡 К oплαтe: <b>{cost}$ USDT</b> зα <b>{amount} кoинoв</b>"),
                                  parse_mode="HTML", reply_markup=b.as_markup(), protect_content=True)
@@ -600,8 +572,8 @@ async def process_payment_screenshot(message: Message, state: FSMContext):
     await state.clear()
     await message.answer(convert_to_font("✅ Скриншoт принят!"), reply_markup=get_main_keyboard(uid),
                          protect_content=True)
-    b = InlineKeyboardBuilder();
-    b.row(types.InlineKeyboardButton(text=f"✅ Принять (+{amt})", callback_data=f"ap_ok_{uid}_{amt}"));
+    b = InlineKeyboardBuilder()
+    b.row(types.InlineKeyboardButton(text=f"✅ Принять (+{amt})", callback_data=f"ap_ok_{uid}_{amt}"))
     b.row(types.InlineKeyboardButton(text="❌ Отклонить", callback_data=f"ap_no_{uid}"))
     try:
         await bot.send_photo(ADMIN_ID, photo=message.photo[-1].file_id,
@@ -617,7 +589,7 @@ async def admin_pay_ok(callback: CallbackQuery, state: FSMContext):
     p = callback.data.split("_");
     uid, amt = int(p[2]), int(p[3]);
     await state.update_data(target_user_id=uid, pending_amount=amt)
-    b = ReplyKeyboardBuilder();
+    b = ReplyKeyboardBuilder()
     b.row(types.KeyboardButton(text="💰 Начислить баланс"));
     b.row(types.KeyboardButton(text="🔗 Выдать ссылку"));
     b.row(types.KeyboardButton(text=CANCEL_TEXT))
@@ -658,8 +630,7 @@ async def admin_check_action(message: Message, state: FSMContext):
 async def admin_send_link(message: Message, state: FSMContext):
     uid = (await state.get_data()).get('target_user_id')
     try:
-        await bot.send_message(uid, convert_to_font("🔗 Вαш тoвαр:") + f"\n\n{message.text}");
-        await message.answer(
+        await bot.send_message(uid, convert_to_font("🔗 Вαш тoвαр:") + f"\n\n{message.text}"); await message.answer(
             "✅ Отправлено.", reply_markup=get_admin_keyboard())
     except:
         await message.answer("❌ Ошибка.", reply_markup=get_admin_keyboard())
@@ -765,9 +736,9 @@ async def process_task_screenshots(message: Message, state: FSMContext):
     if u: u["tasks_status"][tid] = "pending"; await trigger_save(immediate=True)
     await message.answer(convert_to_font("✅ Скриншoты принять! Oжидαйтe провeрки."),
                          reply_markup=get_main_keyboard(uid), protect_content=True)
-    b = InlineKeyboardBuilder();
-    b.row(types.InlineKeyboardButton(text=f"✅ Отправить (+{TASK_REWARD} коинов)",
-                                     callback_data=f"task_appr_{uid}_{tid}"));
+    b = InlineKeyboardBuilder()
+    b.row(
+        types.InlineKeyboardButton(text=f"✅ Отправить (+{TASK_REWARD} коинов)", callback_data=f"task_appr_{uid}_{tid}"))
     b.row(types.InlineKeyboardButton(text="❌ Отклонить", callback_data=f"task_rej_{uid}_{tid}"))
     cap = f"📋 <b>Задание #{tid}</b>\nОт <code>{uid}</code>"
     try:
@@ -867,8 +838,7 @@ async def support_process(message: Message, state: FSMContext):
         await message.answer(convert_to_font("✅ Oтпрαвленo!"), reply_markup=get_main_keyboard(uid),
                              protect_content=True)
     except Exception as e:
-        await message.answer("❌ Ошибка.");
-        logging.error(f"Sup err: {e}")
+        await message.answer("❌ Ошибка."); logging.error(f"Sup err: {e}")
     await state.clear()
 
 
@@ -887,9 +857,8 @@ async def support_send_reply(message: Message, state: FSMContext):
     if uid:
         try:
             await bot.send_message(uid, f"💬 <b>Ответ поддержки:</b>\n\n{message.text}",
-                                   parse_mode="HTML");
-            await message.answer("✅ Отправлено.",
-                                 reply_markup=get_admin_keyboard())
+                                   parse_mode="HTML"); await message.answer("✅ Отправлено.",
+                                                                            reply_markup=get_admin_keyboard())
         except:
             await message.answer("❌ Ошибка.", reply_markup=get_admin_keyboard())
     await state.clear()
@@ -908,7 +877,7 @@ async def suggestion_process(message: Message, state: FSMContext):
     if message.text == CANCEL_TEXT: return await safe_cancel(message, state)
     uid = message.from_user.id;
     txt = message.text or message.caption or ""
-    b = InlineKeyboardBuilder();
+    b = InlineKeyboardBuilder()
     b.row(types.InlineKeyboardButton(text="✅ Принять", callback_data=f"sugg_ok_{uid}"));
     b.row(types.InlineKeyboardButton(text="❌ Отклонить", callback_data=f"sugg_no_{uid}"))
     try:
@@ -925,8 +894,7 @@ async def suggestion_process(message: Message, state: FSMContext):
         await message.answer(convert_to_font("✅ Нα мoдeрαции!"), reply_markup=get_main_keyboard(uid),
                              protect_content=True)
     except Exception as e:
-        await message.answer("❌ Ошибка.");
-        logging.error(f"Sugg err: {e}")
+        await message.answer("❌ Ошибка."); logging.error(f"Sugg err: {e}")
     await state.clear()
 
 
@@ -954,9 +922,8 @@ async def suggestion_no(callback: CallbackQuery):
 @dp.message(F.text == "⚙️ Админка")
 async def admin_panel(message: Message, state: FSMContext):
     if is_admin(message.from_user.id):
-        await state.clear();
-        await message.answer("🛠 <b>Админ-Панель</b>", parse_mode="HTML",
-                             reply_markup=get_admin_keyboard())
+        await state.clear(); await message.answer("🛠 <b>Админ-Панель</b>", parse_mode="HTML",
+                                                  reply_markup=get_admin_keyboard())
     else:
         await message.answer(convert_to_font("❌ Нeт дoступα."))
 
@@ -1004,8 +971,7 @@ async def admin_issue_process(message: Message, state: FSMContext):
         await state.clear()
     elif len(p) == 1 and p[0].isdigit():
         await state.update_data(target_user_id=int(p[0]));
-        await message.answer("Введите сумму:",
-                             reply_markup=get_cancel_keyboard())
+        await message.answer("Введите сумму:", reply_markup=get_cancel_keyboard())
     else:
         await message.answer("❌ Неверный формат.", parse_mode="HTML")
 
@@ -1031,7 +997,6 @@ async def admin_generate_key_process(message: Message, state: FSMContext):
     await state.clear()
 
 
-# НОВОЕ: ДОБАВЛЕНИЕ БЕСПЛАТНОГО ПАКА
 @dp.message(F.text == "📦 Добавить бесплатный пак")
 async def admin_add_pack_start(message: Message, state: FSMContext):
     await state.clear()
@@ -1051,6 +1016,90 @@ async def admin_add_pack_process(message: Message, state: FSMContext):
     await state.clear()
 
 
+# ================= ЗАЩИЩЕННОЕ УДАЛЕНИЕ КОНТЕНТА =================
+@dp.message(F.text == "🗑 Удалить фото/видео")
+async def admin_delete_menu(message: Message):
+    b = InlineKeyboardBuilder()
+    b.row(types.InlineKeyboardButton(text="Фото (1ч)", callback_data="del_photo_3600"),
+          types.InlineKeyboardButton(text="Видео (1ч)", callback_data="del_video_3600"))
+    b.row(types.InlineKeyboardButton(text="Все фото", callback_data="del_photo_all"),
+          types.InlineKeyboardButton(text="Все видео", callback_data="del_video_all"))
+    await message.answer("Удалить:", reply_markup=b.as_markup())
+
+
+@dp.callback_query(F.data.startswith("del_photo_"))
+async def process_delete_photo(callback: CallbackQuery, state: FSMContext):
+    action = callback.data
+    time_str = "за последний час" if "3600" in action else "ВСЕ"
+
+    await callback.message.edit_text(
+        f"⚠️ <b>ВНИМАНИЕ!</b>\n\nВы собираетесь удалить <b>{time_str} фото</b>.\n"
+        "Это действие необратимо!\n\n"
+        "Для подтверждения введите пароль: <code>delete</code>\n"
+        "Или отправьте любой другой текст для отмены.",
+        parse_mode="HTML"
+    )
+    await state.set_state(AdminStates.confirming_delete)
+    await state.update_data(delete_target=action)
+    await callback.answer()
+
+
+@dp.callback_query(F.data.startswith("del_video_"))
+async def process_delete_video(callback: CallbackQuery, state: FSMContext):
+    action = callback.data
+    time_str = "за последний час" if "3600" in action else "ВСЕ"
+
+    await callback.message.edit_text(
+        f"⚠️ <b>ВНИМАНИЕ!</b>\n\nВы собираетесь удалить <b>{time_str} видео</b>.\n"
+        "Это действие необратимо!\n\n"
+        "Для подтверждения введите пароль: <code>delete</code>\n"
+        "Или отправьте любой другой текст для отмены.",
+        parse_mode="HTML"
+    )
+    await state.set_state(AdminStates.confirming_delete)
+    await state.update_data(delete_target=action)
+    await callback.answer()
+
+
+@dp.message(F.text == "🧹 Очистить всё")
+async def admin_wipe_all(message: Message, state: FSMContext):
+    await message.answer(
+        "⚠️ <b>ВНИМАНИЕ!</b>\n\nВы собираетесь <b>ПОЛНОСТЬЮ ОЧИСТИТЬ</b> весь контент (фото и видео) и историю просмотров!\n"
+        "Это действие необратимо!\n\n"
+        "Для подтверждения введите пароль: <code>delete</code>\n"
+        "Или отправьте любой другой текст для отмены.",
+        parse_mode="HTML"
+    )
+    await state.set_state(AdminStates.confirming_delete)
+    await state.update_data(delete_target="wipe_all")
+
+
+@dp.message(AdminStates.confirming_delete)
+async def process_delete_confirmation(message: Message, state: FSMContext):
+    if message.text == "delete":
+        data = await state.get_data()
+        target = data.get("delete_target")
+        await state.clear()
+
+        if target == "wipe_all":
+            await wipe_all_content()
+            await message.answer("🧹 Всё полностью очищено!", reply_markup=get_admin_keyboard())
+        elif target and target.startswith("del_photo_"):
+            limit = None if "all" in target else int(target.split("_")[2])
+            await delete_content('photo', limit)
+            await message.answer("✅ Фото успешно удалены.", reply_markup=get_admin_keyboard())
+        elif target and target.startswith("del_video_"):
+            limit = None if "all" in target else int(target.split("_")[2])
+            await delete_content('video', limit)
+            await message.answer("✅ Видео успешно удалены.", reply_markup=get_admin_keyboard())
+        else:
+            await message.answer("❌ Неизвестная цель удаления.", reply_markup=get_admin_keyboard())
+    else:
+        await state.clear()
+        await message.answer("🚫 Удаление отменено.", reply_markup=get_admin_keyboard())
+
+
+# ================= ОСТАЛЬНАЯ АДМИНКА =================
 @dp.message(F.text == "📸 Добавить фото")
 async def admin_add_photo_start(message: Message, state: FSMContext):
     await message.answer("Отправьте фото:", reply_markup=get_cancel_keyboard());
@@ -1077,35 +1126,9 @@ async def admin_add_video_process(message: Message, state: FSMContext):
     await state.clear()
 
 
-@dp.message(F.text == "🗑 Удалить фото/видео")
-async def admin_delete_menu(message: Message):
-    b = InlineKeyboardBuilder();
-    b.row(types.InlineKeyboardButton(text="Фото (1ч)", callback_data="del_photo_3600"),
-          types.InlineKeyboardButton(text="Видео (1ч)", callback_data="del_video_3600"))
-    b.row(types.InlineKeyboardButton(text="Все фото", callback_data="del_photo_all"),
-          types.InlineKeyboardButton(text="Все видео", callback_data="del_video_all"))
-    await message.answer("Удалить:", reply_markup=b.as_markup())
-
-
-@dp.callback_query(F.data.startswith("del_photo_"))
-async def process_delete_photo(callback: CallbackQuery):
-    await delete_content('photo', None if callback.data.split("_")[2] == "all" else int(callback.data.split("_")[2]));
-    await callback.message.edit_text("✅ Фото удалены.")
-
-
-@dp.callback_query(F.data.startswith("del_video_"))
-async def process_delete_video(callback: CallbackQuery):
-    await delete_content('video', None if callback.data.split("_")[2] == "all" else int(callback.data.split("_")[2]));
-    await callback.message.edit_text("✅ Видео удалены.")
-
-
-@dp.message(F.text == "🧹 Очистить всё")
-async def admin_wipe_all(message: Message): await wipe_all_content(); await message.answer("🧹 Очищено!")
-
-
 @dp.message(F.text == "👮‍♂️ Управление админами")
 async def admin_manage_admins(message: Message):
-    b = InlineKeyboardBuilder();
+    b = InlineKeyboardBuilder()
     b.row(types.InlineKeyboardButton(text="➕ Добавить", callback_data="adm_add"));
     b.row(types.InlineKeyboardButton(text="➖ Удалить", callback_data="adm_del"))
     await message.answer(
@@ -1135,11 +1158,9 @@ async def admin_admin_process(message: Message, state: FSMContext):
     try:
         uid = int(message.text)
         if "add" in str(await state.get_state()):
-            await add_admin_to_db(uid);
-            await message.answer("✅ Добавлен!", reply_markup=get_admin_keyboard())
+            await add_admin_to_db(uid); await message.answer("✅ Добавлен!", reply_markup=get_admin_keyboard())
         else:
-            await remove_admin_from_db(uid);
-            await message.answer("✅ Удален!", reply_markup=get_admin_keyboard())
+            await remove_admin_from_db(uid); await message.answer("✅ Удален!", reply_markup=get_admin_keyboard())
     except:
         await message.answer("❌ Ошибка ID.")
     await state.clear()
@@ -1160,9 +1181,7 @@ async def admin_mailing_process(message: Message, state: FSMContext):
     st = await message.answer(f"⏳ Рассылка {len(users)}...")
     for uid in users:
         try:
-            await message.copy_to(chat_id=uid);
-            s += 1;
-            await asyncio.sleep(0.05)
+            await message.copy_to(chat_id=uid); s += 1; await asyncio.sleep(0.05)
         except:
             f += 1
     await st.delete();
